@@ -4,7 +4,7 @@
 
 set -e
 
-GITHUB_REPO="${GRADIENT_REPO:-usegradient/gradient}"
+GITHUB_REPO="${GRADIENT_REPO:-use-gradient/gradient}"
 # Placeholder until releases are hosted; user can override with GRADIENT_INSTALL_URL
 BASE_URL="${GRADIENT_INSTALL_URL:-https://github.com/${GITHUB_REPO}/releases/latest/download}"
 

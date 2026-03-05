@@ -5,7 +5,7 @@ Command-line client for [Gradient](https://usegradient.dev) — manage VMs, secr
 ## Installation
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/usegradient/gradient/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/use-gradient/gradient/main/install.sh | sh
 ```
 
 This detects your OS and architecture, downloads the binary, and installs it to `/usr/local/bin/gradient`.
@@ -13,7 +13,7 @@ This detects your OS and architecture, downloads the binary, and installs it to 
 To install to a different location:
 
 ```sh
-GRADIENT_BIN=~/.local/bin/gradient curl -fsSL https://raw.githubusercontent.com/usegradient/gradient/main/install.sh | sh
+GRADIENT_BIN=~/.local/bin/gradient curl -fsSL https://raw.githubusercontent.com/use-gradient/gradient/main/install.sh | sh
 ```
 
 ## Authentication
@@ -128,7 +128,7 @@ gradient run -- env  # prints all env vars including injected secrets
 ## Building from source
 
 ```sh
-git clone https://github.com/usegradient/gradient.git
+git clone https://github.com/use-gradient/gradient.git
 cd gradient
 go build -o gradient .
 ```
