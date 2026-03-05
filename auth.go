@@ -92,25 +92,40 @@ func runAuthLogin(args []string) int {
 		fmt.Fprintf(os.Stderr, "Warning: could not register device key: %v\n", err)
 		return 0
 	}
-	var data struct {
-		ID string `json:"id"`
+	deviceKeyID := extractDeviceID(resp.Data)
+	if deviceKeyID == "" {
+		fmt.Fprintf(os.Stderr, "Warning: invalid device registration response\n")
+		return 0
 	}
-	if err := api.DataInto(resp, &data); err != nil || data.ID == "" {
-		// Fallback: some server versions may return the device ID as a plain JSON string.
-		var idStr string
-		if err2 := json.Unmarshal(resp.Data, &idStr); err2 == nil && idStr != "" {
-			data.ID = idStr
-		} else {
-			fmt.Fprintf(os.Stderr, "Warning: invalid device registration response\n")
-			return 0
-		}
-	}
-	if err := config.WriteDeviceKey(priv, data.ID); err != nil {
+	if err := config.WriteDeviceKey(priv, deviceKeyID); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save device key: %v\n", err)
 		return 0
 	}
 	fmt.Fprintln(os.Stderr, "Device key registered for end-to-end encryption.")
 	return 0
+}
+
+func extractDeviceID(raw json.RawMessage) string {
+	// Case 1: data is a JSON object with "id" field
+	var obj struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.ID != "" {
+		return strings.TrimSpace(obj.ID)
+	}
+	// Case 2: data is a JSON string (server wrapped it); try parsing that string as JSON object
+	var s string
+	if json.Unmarshal(raw, &s) == nil && s != "" {
+		s = strings.SplitN(s, "\n", 2)[0] // drop any trailing status lines
+		if json.Unmarshal([]byte(s), &obj) == nil && obj.ID != "" {
+			return strings.TrimSpace(obj.ID)
+		}
+		s = strings.TrimSpace(s)
+		if len(s) > 0 && s[0] != '{' {
+			return s
+		}
+	}
+	return ""
 }
 
 func runAuthLogout(args []string) int {
