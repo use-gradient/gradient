@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
