@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const deviceKeyFile = "device_key"
@@ -71,6 +72,10 @@ func ReadDeviceKey() (*ecdh.PrivateKey, string, error) {
 	}
 	id := string(trimBytes(idB))
 	if id == "" {
+		return nil, "", nil
+	}
+	if strings.ContainsAny(id, "\n\r\x00") {
+		_ = DeleteDeviceKey()
 		return nil, "", nil
 	}
 	return priv, id, nil
