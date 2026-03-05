@@ -1,0 +1,13 @@
+# Binary
+gradient
+gradient_*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
