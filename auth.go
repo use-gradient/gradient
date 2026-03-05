@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -66,6 +67,42 @@ func runAuthLogin(args []string) int {
 		return 1
 	}
 	fmt.Fprintln(os.Stderr, "API key stored.")
+
+	// Register device key for E2E encryption if not already present
+	_, deviceID, err := config.ReadDeviceKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not read device key: %v\n", err)
+		return 0
+	}
+	if deviceID != "" {
+		return 0
+	}
+	priv, pub, err := config.GenerateDeviceKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not generate device key: %v\n", err)
+		return 0
+	}
+	client := api.NewClient(key, "", nil)
+	resp, err := client.Post("/api/v1/auth/devices", map[string]string{
+		"name":       "cli",
+		"public_key": base64.StdEncoding.EncodeToString(pub),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not register device key: %v\n", err)
+		return 0
+	}
+	var data struct {
+		ID string `json:"id"`
+	}
+	if err := api.DataInto(resp, &data); err != nil || data.ID == "" {
+		fmt.Fprintf(os.Stderr, "Warning: invalid device registration response\n")
+		return 0
+	}
+	if err := config.WriteDeviceKey(priv, data.ID); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save device key: %v\n", err)
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "Device key registered for end-to-end encryption.")
 	return 0
 }
 
@@ -74,6 +111,7 @@ func runAuthLogout(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
+	_ = config.DeleteDeviceKey()
 	fmt.Fprintln(os.Stderr, "Logged out.")
 	return 0
 }
@@ -88,7 +126,8 @@ func runAuthWhoami(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error: not authenticated. Run 'gradient auth login' to set your API key.")
 		return 1
 	}
-	client := api.NewClient(key)
+	priv, deviceID, _ := config.ReadDeviceKey()
+	client := api.NewClient(key, deviceID, priv)
 	resp, err := client.Get("/api/v1/vm/projects")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

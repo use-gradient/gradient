@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/usegradient/gradient/internal/api"
+	"github.com/usegradient/gradient/internal/config"
 )
 
 const kmsUsage = `Usage: gradient kms <resource> <command> [args]
@@ -22,7 +23,8 @@ func runKMS(args []string, key string) int {
 		fmt.Fprint(os.Stderr, kmsUsage)
 		return 1
 	}
-	client := api.NewClient(key)
+	priv, deviceID, _ := config.ReadDeviceKey()
+	client := api.NewClient(key, deviceID, priv)
 	switch args[0] {
 	case "project":
 		return kmsProject(client, args[1:])

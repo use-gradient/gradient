@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/usegradient/gradient/internal/api"
+	"github.com/usegradient/gradient/internal/config"
 )
 
 const vmUsage = `Usage: gradient vm <command> [options] [args]
@@ -28,7 +29,8 @@ func runVM(args []string, key string) int {
 		fmt.Fprint(os.Stderr, vmUsage)
 		return 1
 	}
-	client := api.NewClient(key)
+	priv, deviceID, _ := config.ReadDeviceKey()
+	client := api.NewClient(key, deviceID, priv)
 	switch args[0] {
 	case "list":
 		return vmList(client, args[1:])

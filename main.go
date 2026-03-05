@@ -7,13 +7,17 @@ import (
 	"github.com/usegradient/gradient/internal/config"
 )
 
+var Version = "dev"
+
 const rootUsage = `Usage: gradient <command> [options] [args]
 
 Commands:
-  auth    Manage API key (login, logout, whoami, key)
-  vm      VMs and projects (list, add, delete, info, up, down, resize, projects)
-  kms     Secrets (project, branch, secret, apply)
-  run     Run a command with env secrets injected (gradient run -- <cmd> [args])
+  auth      Manage API key (login, logout, whoami, key)
+  vm        VMs and projects (list, add, delete, info, up, down, resize, projects)
+  kms       Secrets (project, branch, secret, apply)
+  run       Run a command with env secrets injected (gradient run -- <cmd> [args])
+  update    Update gradient to the latest version
+  version   Print the current version
 
 Use 'gradient <command>' for command-specific help.
 `
@@ -30,16 +34,21 @@ func run(args []string) int {
 	cmd := args[0]
 	rest := args[1:]
 
-	// Commands that do not require an API key
 	switch cmd {
 	case "auth":
 		return runAuth(rest)
+	case "update":
+		return runUpdate(rest)
+	case "version", "--version", "-v":
+		fmt.Printf("gradient %s\n", Version)
+		return 0
 	case "help", "-h", "--help":
 		fmt.Fprint(os.Stderr, rootUsage)
 		return 0
 	}
 
-	// All other commands require authentication
+	hintUpdateIfAvailable()
+
 	key, err := config.ReadAPIKey()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

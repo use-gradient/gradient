@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/usegradient/gradient/internal/api"
 	"github.com/usegradient/gradient/internal/config"
@@ -28,7 +29,8 @@ func runRun(args []string, key string) int {
 		return 1
 	}
 
-	client := api.NewClient(key)
+	priv, deviceID, _ := config.ReadDeviceKey()
+	client := api.NewClient(key, deviceID, priv)
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -109,16 +111,28 @@ func promptProjectAndBranch(client *api.Client, cwd string) (*config.ProjectConf
 	for i, p := range projects {
 		fmt.Fprintf(os.Stderr, "  %d) %s\n", i+1, p.Name)
 	}
-	fmt.Fprint(os.Stderr, "Number: ")
+	fmt.Fprint(os.Stderr, "Name or number: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("reading input")
 	}
-	var idx int
-	if _, err := fmt.Sscanf(scanner.Text(), "%d", &idx); err != nil || idx < 1 || idx > len(projects) {
-		return nil, fmt.Errorf("invalid selection")
+	input := strings.TrimSpace(scanner.Text())
+	idx := -1
+	if n, err := fmt.Sscanf(input, "%d", &idx); n == 1 && err == nil && idx >= 1 && idx <= len(projects) {
+		idx-- // convert to 0-based
+	} else {
+		idx = -1
+		for i, p := range projects {
+			if strings.EqualFold(p.Name, input) {
+				idx = i
+				break
+			}
+		}
 	}
-	projectID := projects[idx-1].ID
+	if idx < 0 {
+		return nil, fmt.Errorf("invalid selection: %q", input)
+	}
+	projectID := projects[idx].ID
 
 	// List branches for this project
 	resp2, err := client.Get("/api/v1/kms/projects/" + url.PathEscape(projectID) + "/branches")
@@ -145,15 +159,31 @@ func promptProjectAndBranch(client *api.Client, cwd string) (*config.ProjectConf
 		}
 		fmt.Fprintf(os.Stderr, "  %d) %s\n", i+1, stage)
 	}
-	fmt.Fprint(os.Stderr, "Number: ")
+	fmt.Fprint(os.Stderr, "Name or number: ")
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("reading input")
 	}
-	var bidx int
-	if _, err := fmt.Sscanf(scanner.Text(), "%d", &bidx); err != nil || bidx < 1 || bidx > len(branches) {
-		return nil, fmt.Errorf("invalid selection")
+	binput := strings.TrimSpace(scanner.Text())
+	bidx := -1
+	if n, err := fmt.Sscanf(binput, "%d", &bidx); n == 1 && err == nil && bidx >= 1 && bidx <= len(branches) {
+		bidx--
+	} else {
+		bidx = -1
+		for i, b := range branches {
+			label := b.Stage
+			if label == "" {
+				label = b.Name
+			}
+			if strings.EqualFold(label, binput) {
+				bidx = i
+				break
+			}
+		}
 	}
-	branchID := branches[bidx-1].ID
+	if bidx < 0 {
+		return nil, fmt.Errorf("invalid selection: %q", binput)
+	}
+	branchID := branches[bidx].ID
 
 	return &config.ProjectConfig{ProjectID: projectID, BranchID: branchID}, nil
 }
