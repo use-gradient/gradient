@@ -95,8 +95,14 @@ func runAuthLogin(args []string) int {
 		ID string `json:"id"`
 	}
 	if err := api.DataInto(resp, &data); err != nil || data.ID == "" {
-		fmt.Fprintf(os.Stderr, "Warning: invalid device registration response\n")
-		return 0
+		// Fallback: some server versions may return the device ID as a plain JSON string.
+		var idStr string
+		if err2 := json.Unmarshal(resp.Data, &idStr); err2 == nil && idStr != "" {
+			data.ID = idStr
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: invalid device registration response\n")
+			return 0
+		}
 	}
 	if err := config.WriteDeviceKey(priv, data.ID); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save device key: %v\n", err)
