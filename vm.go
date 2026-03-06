@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/usegradient/gradient/internal/api"
-	"github.com/usegradient/gradient/internal/config"
 )
 
 const vmUsage = `Usage: gradient vm <command> [options] [args]
@@ -19,6 +19,7 @@ Commands:
   up <name>               Start a VM
   down <name>             Stop a VM
   resize <name>           Resize VM (--balloon, --memory, --cpus)
+  stage <name> <branch>   Bind a VM to a secrets branch (dev/staging/prod)
   projects                List projects
   projects <name>         List VMs in project
   projects delete <name>  Delete a project and its VMs
@@ -29,8 +30,7 @@ func runVM(args []string, key string) int {
 		fmt.Fprint(os.Stderr, vmUsage)
 		return 1
 	}
-	priv, deviceID, _ := config.ReadDeviceKey()
-	client := api.NewClient(key, deviceID, priv)
+	client := api.NewClient(key)
 	switch args[0] {
 	case "list":
 		return vmList(client, args[1:])
@@ -46,6 +46,8 @@ func runVM(args []string, key string) int {
 		return vmDown(client, args[1:])
 	case "resize":
 		return vmResize(client, args[1:])
+	case "stage":
+		return vmStage(client, args[1:])
 	case "projects":
 		return vmProjects(client, args[1:])
 	default:
@@ -67,11 +69,11 @@ func vmList(client *api.Client, args []string) int {
 
 func vmAdd(client *api.Client, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: gradient vm add <name> --project <project> [--cpus N] [--memory SIZE] [--disk SIZE] [--repo URL]")
+		fmt.Fprintln(os.Stderr, "Usage: gradient vm add <name> --project <project> [--cpus N] [--memory SIZE] [--disk SIZE] [--repo URL] [--stage dev|staging|prod]")
 		return 1
 	}
 	name := args[0]
-	var project, cpus, memory, disk, repo string
+	var project, cpus, memory, disk, repo, stage string
 	rest := args[1:]
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -100,6 +102,11 @@ func vmAdd(client *api.Client, args []string) int {
 				repo = rest[i+1]
 				i++
 			}
+		case "--stage":
+			if i+1 < len(rest) {
+				stage = rest[i+1]
+				i++
+			}
 		}
 	}
 	if project == "" {
@@ -119,13 +126,94 @@ func vmAdd(client *api.Client, args []string) int {
 	if repo != "" {
 		body["repo"] = repo
 	}
+	if stage != "" {
+		body["stage"] = stage
+	}
 	resp, err := client.Post("/api/v1/vm", body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
 	fmt.Print(string(resp.Data))
+
+	// If --stage was provided, bind the VM to that stage branch
+	if stage != "" {
+		branchID, err := resolveStageForVM(client, name, stage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\nWarning: VM created but stage binding failed: %v\n", err)
+			return 0
+		}
+		stageResp, err := client.Patch("/api/v1/vm/"+pathEscape(name)+"/stage", map[string]string{"branch_id": branchID})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\nWarning: VM created but stage binding failed: %v\n", err)
+			return 0
+		}
+		fmt.Fprintf(os.Stderr, "\nVM bound to stage %s. Machine token issued.\n", stage)
+		fmt.Print(string(stageResp.Data))
+	}
 	return 0
+}
+
+func vmStage(client *api.Client, args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "Usage: gradient vm stage <vm-name> <stage-name>")
+		fmt.Fprintln(os.Stderr, "  stage-name: dev, staging, prod, or a branch UUID")
+		return 1
+	}
+	vmName := args[0]
+	stageOrBranch := args[1]
+
+	branchID, err := resolveStageForVM(client, vmName, stageOrBranch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	resp, err := client.Patch("/api/v1/vm/"+pathEscape(vmName)+"/stage", map[string]string{"branch_id": branchID})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+	fmt.Print(string(resp.Data))
+	return 0
+}
+
+// resolveStageForVM resolves a stage name (dev/staging/prod) to a branch UUID for
+// a VM. If the input is already a UUID-like string (contains '-'), it's returned as-is.
+func resolveStageForVM(client *api.Client, vmName, stageOrBranch string) (string, error) {
+	// If it looks like a UUID, use directly
+	if len(stageOrBranch) > 30 && strings.Contains(stageOrBranch, "-") {
+		return stageOrBranch, nil
+	}
+	// Get VM info to find project_id
+	vmResp, err := client.Get("/api/v1/vm/" + pathEscape(vmName))
+	if err != nil {
+		return "", fmt.Errorf("get VM: %w", err)
+	}
+	var vmInfo struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := api.DataInto(vmResp, &vmInfo); err != nil || vmInfo.ProjectID == "" {
+		return "", fmt.Errorf("could not determine VM project")
+	}
+	// List branches for the project
+	branchResp, err := client.Get("/api/v1/kms/projects/" + url.PathEscape(vmInfo.ProjectID) + "/branches")
+	if err != nil {
+		return "", fmt.Errorf("list branches: %w", err)
+	}
+	var branches []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := api.DataInto(branchResp, &branches); err != nil {
+		return "", fmt.Errorf("parse branches: %w", err)
+	}
+	for _, b := range branches {
+		if b.Name == stageOrBranch {
+			return b.ID, nil
+		}
+	}
+	return "", fmt.Errorf("stage branch %q not found in project", stageOrBranch)
 }
 
 func vmDelete(client *api.Client, args []string) int {

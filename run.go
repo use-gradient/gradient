@@ -29,8 +29,7 @@ func runRun(args []string, key string) int {
 		return 1
 	}
 
-	priv, deviceID, _ := config.ReadDeviceKey()
-	client := api.NewClient(key, deviceID, priv)
+	client := api.NewClient(key)
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

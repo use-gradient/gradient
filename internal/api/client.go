@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"crypto/ecdh"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,41 +11,32 @@ import (
 	"strings"
 )
 
-// APIResponse matches fleet-api response shape.
 type APIResponse struct {
-	OK        bool            `json:"ok"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	Duration  int64           `json:"duration_ms,omitempty"`
-	Encrypted bool            `json:"encrypted,omitempty"`
+	OK       bool            `json:"ok"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Duration int64           `json:"duration_ms,omitempty"`
 }
 
-// Client talks to fleet-api with API key auth. Optional device key enables E2E decryption.
 type Client struct {
-	BaseURL     string
-	APIKey      string
-	DeviceKeyID string           // sent as X-Device-Key-ID when set
-	PrivateKey  *ecdh.PrivateKey // used to decrypt encrypted responses when set
-	HTTPClient  *http.Client
+	BaseURL    string
+	APIKey     string
+	HTTPClient *http.Client
 }
 
-// NewClient builds a client. apiKey is required. deviceKeyID and priv are optional for E2E encryption.
-func NewClient(apiKey string, deviceKeyID string, priv *ecdh.PrivateKey) *Client {
+func NewClient(apiKey string) *Client {
 	baseURL := os.Getenv("GRADIENT_API_URL")
 	if baseURL == "" {
 		baseURL = "https://fleet.usegradient.dev"
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	return &Client{
-		BaseURL:     baseURL,
-		APIKey:      apiKey,
-		DeviceKeyID: deviceKeyID,
-		PrivateKey:  priv,
-		HTTPClient:  &http.Client{},
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		HTTPClient: &http.Client{},
 	}
 }
 
-// Do performs a request and returns the parsed APIResponse and any error.
 func (c *Client) Do(method, path string, body interface{}) (*APIResponse, error) {
 	var bodyReader io.Reader
 	if body != nil {
@@ -67,9 +57,6 @@ func (c *Client) Do(method, path string, body interface{}) (*APIResponse, error)
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if c.DeviceKeyID != "" {
-		req.Header.Set("X-Device-Key-ID", c.DeviceKeyID)
-	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -80,17 +67,6 @@ func (c *Client) Do(method, path string, body interface{}) (*APIResponse, error)
 	var out APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	if out.Encrypted && c.PrivateKey != nil && len(out.Data) > 2 {
-		var envelope EncryptedEnvelope
-		if json.Unmarshal(out.Data, &envelope) == nil {
-			plaintext, err := DecryptEnvelope(c.PrivateKey, &envelope)
-			if err != nil {
-				return nil, fmt.Errorf("decrypt response: %w", err)
-			}
-			out.Data = json.RawMessage(plaintext)
-			out.Encrypted = false
-		}
 	}
 	if resp.StatusCode >= 400 {
 		msg := out.Error
@@ -105,27 +81,26 @@ func (c *Client) Do(method, path string, body interface{}) (*APIResponse, error)
 	return &out, nil
 }
 
-// Get is shorthand for Do("GET", path, nil).
 func (c *Client) Get(path string) (*APIResponse, error) {
 	return c.Do(http.MethodGet, path, nil)
 }
 
-// Post is shorthand for Do("POST", path, body).
 func (c *Client) Post(path string, body interface{}) (*APIResponse, error) {
 	return c.Do(http.MethodPost, path, body)
 }
 
-// Put is shorthand for Do("PUT", path, body).
 func (c *Client) Put(path string, body interface{}) (*APIResponse, error) {
 	return c.Do(http.MethodPut, path, body)
 }
 
-// Delete is shorthand for Do("DELETE", path, nil).
+func (c *Client) Patch(path string, body interface{}) (*APIResponse, error) {
+	return c.Do(http.MethodPatch, path, body)
+}
+
 func (c *Client) Delete(path string) (*APIResponse, error) {
 	return c.Do(http.MethodDelete, path, nil)
 }
 
-// DataInto unmarshals resp.Data into v. Use when resp.OK and resp.Data is JSON.
 func DataInto(resp *APIResponse, v interface{}) error {
 	if resp == nil || len(resp.Data) == 0 {
 		return nil
