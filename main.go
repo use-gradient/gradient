@@ -49,7 +49,7 @@ func run(args []string) int {
 
 	hintUpdateIfAvailable()
 
-	key, err := config.ReadAPIKey()
+	key, err := config.ResolveToken()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1

@@ -13,7 +13,6 @@ import (
 )
 
 func runRun(args []string, key string) int {
-	// Parse "gradient run -- <command> [args...]"
 	var cmdArgs []string
 	for i, a := range args {
 		if a == "--" {
@@ -30,44 +29,58 @@ func runRun(args []string, key string) int {
 	}
 
 	client := api.NewClient(key)
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return 1
-	}
 
-	cfg, err := config.ReadProjectConfig(cwd)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return 1
-	}
-	if cfg == nil {
-		// Interactive: select project and branch, write .gradient.yaml
-		cfg, err = promptProjectAndBranch(client, cwd)
+	var secrets map[string]string
+
+	if config.IsVMToken(key) {
+		// VM token: fetch secrets directly from the vm-agent endpoint.
+		// No .gradient.yaml needed — project and branch are resolved server-side.
+		resp, err := client.Get("/api/v1/vm-agent/secrets")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
-		if err := config.WriteProjectConfig(cwd, cfg); err != nil {
+		if err := api.DataInto(resp, &secrets); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(os.Stderr, "Created .gradient.yaml for future runs. You can edit it to change project or branch.")
+	} else {
+		// API key: use .gradient.yaml for project/branch selection
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+
+		cfg, err := config.ReadProjectConfig(cwd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		if cfg == nil {
+			cfg, err = promptProjectAndBranch(client, cwd)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			if err := config.WriteProjectConfig(cwd, cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return 1
+			}
+			fmt.Fprintln(os.Stderr, "Created .gradient.yaml for future runs. You can edit it to change project or branch.")
+		}
+
+		resp, err := client.Get("/api/v1/kms/projects/" + url.PathEscape(cfg.ProjectID) + "/branches/" + url.PathEscape(cfg.BranchID) + "/secrets")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		if err := api.DataInto(resp, &secrets); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
 	}
 
-	// Fetch secrets
-	resp, err := client.Get("/api/v1/kms/projects/" + url.PathEscape(cfg.ProjectID) + "/branches/" + url.PathEscape(cfg.BranchID) + "/secrets")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return 1
-	}
-	var secrets map[string]string
-	if err := api.DataInto(resp, &secrets); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return 1
-	}
-
-	// Build env: current env + secrets (secrets override)
 	env := os.Environ()
 	for k, v := range secrets {
 		env = append(env, k+"="+v)
@@ -78,7 +91,10 @@ func runRun(args []string, key string) int {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Dir = cwd
+	if !config.IsVMToken(key) {
+		cwd, _ := os.Getwd()
+		cmd.Dir = cwd
+	}
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
@@ -90,7 +106,6 @@ func runRun(args []string, key string) int {
 }
 
 func promptProjectAndBranch(client *api.Client, cwd string) (*config.ProjectConfig, error) {
-	// List KMS projects
 	resp, err := client.Get("/api/v1/kms/projects")
 	if err != nil {
 		return nil, err
@@ -118,7 +133,7 @@ func promptProjectAndBranch(client *api.Client, cwd string) (*config.ProjectConf
 	input := strings.TrimSpace(scanner.Text())
 	idx := -1
 	if n, err := fmt.Sscanf(input, "%d", &idx); n == 1 && err == nil && idx >= 1 && idx <= len(projects) {
-		idx-- // convert to 0-based
+		idx--
 	} else {
 		idx = -1
 		for i, p := range projects {
@@ -133,7 +148,6 @@ func promptProjectAndBranch(client *api.Client, cwd string) (*config.ProjectConf
 	}
 	projectID := projects[idx].ID
 
-	// List branches for this project
 	resp2, err := client.Get("/api/v1/kms/projects/" + url.PathEscape(projectID) + "/branches")
 	if err != nil {
 		return nil, err

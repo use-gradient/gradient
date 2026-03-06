@@ -148,7 +148,7 @@ func vmAdd(client *api.Client, args []string) int {
 			fmt.Fprintf(os.Stderr, "\nWarning: VM created but stage binding failed: %v\n", err)
 			return 0
 		}
-		fmt.Fprintf(os.Stderr, "\nVM bound to stage %s. Machine token issued.\n", stage)
+		fmt.Fprintf(os.Stderr, "\nVM bound to stage %s.\n", stage)
 		fmt.Print(string(stageResp.Data))
 	}
 	return 0

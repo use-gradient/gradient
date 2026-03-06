@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const credsDir = "gradient"
 const credsFile = "credentials"
+const vmTokenPath = "/etc/gradient/vm-token"
 
 // CredentialsPath returns the path to the stored API key (~/.config/gradient/credentials).
 func CredentialsPath() (string, error) {
@@ -31,7 +33,37 @@ func ReadAPIKey() (string, error) {
 		}
 		return "", fmt.Errorf("read credentials: %w", err)
 	}
-	return string(b), nil
+	return strings.TrimSpace(string(b)), nil
+}
+
+// ReadVMToken reads the static VM token from /etc/gradient/vm-token.
+// Returns empty string if the file doesn't exist.
+func ReadVMToken() (string, error) {
+	b, err := os.ReadFile(vmTokenPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read vm token: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// ResolveToken returns the best available auth token: user API key first, then VM token.
+func ResolveToken() (string, error) {
+	key, err := ReadAPIKey()
+	if err != nil {
+		return "", err
+	}
+	if key != "" {
+		return key, nil
+	}
+	return ReadVMToken()
+}
+
+// IsVMToken returns true if the token is a static VM token (vmt_ prefix).
+func IsVMToken(token string) bool {
+	return strings.HasPrefix(token, "vmt_")
 }
 
 // WriteAPIKey writes the API key to the credentials file with 0600 permissions.

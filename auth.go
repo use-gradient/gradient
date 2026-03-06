@@ -79,7 +79,7 @@ func runAuthLogout(args []string) int {
 }
 
 func runAuthWhoami(args []string) int {
-	key, err := config.ReadAPIKey()
+	key, err := config.ResolveToken()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
@@ -87,6 +87,17 @@ func runAuthWhoami(args []string) int {
 	if key == "" {
 		fmt.Fprintln(os.Stderr, "Error: not authenticated. Run 'gradient auth login' to set your API key.")
 		return 1
+	}
+	if config.IsVMToken(key) {
+		client := api.NewClient(key)
+		_, err := client.Get("/api/v1/vm-agent/secrets")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Authenticated as VM agent but token may be invalid: %v\n", err)
+			return 1
+		}
+		fmt.Println("Authenticated as VM agent (static VM token).")
+		fmt.Println("Use 'gradient run -- <cmd>' to run commands with secrets injected.")
+		return 0
 	}
 	client := api.NewClient(key)
 	resp, err := client.Get("/api/v1/vm/projects")
@@ -102,7 +113,7 @@ func runAuthWhoami(args []string) int {
 }
 
 func runAuthKey(args []string) int {
-	key, err := config.ReadAPIKey()
+	key, err := config.ResolveToken()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
